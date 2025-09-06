@@ -75,7 +75,7 @@ const mockTestimonials: Testimonial[] = [
 ];
 
 // Helper to get data from localStorage
-const getFromStorage = <T>(key: string, defaultValue: T): T => {
+const getFromStorage = <T,>(key: string, defaultValue: T): T => {
   try {
     const item = window.localStorage.getItem(key);
     if (!item) return defaultValue;
@@ -93,7 +93,7 @@ const getFromStorage = <T>(key: string, defaultValue: T): T => {
 };
 
 // Helper to set data to localStorage
-const setToStorage = <T>(key: string, value: T) => {
+const setToStorage = <T,>(key: string, value: T) => {
   try {
     window.localStorage.setItem(key, JSON.stringify(value));
   } catch (error) {
