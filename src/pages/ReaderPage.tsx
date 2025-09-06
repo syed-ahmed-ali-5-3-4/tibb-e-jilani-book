@@ -122,10 +122,17 @@ const ReaderPage: React.FC = () => {
               style={{ fontSize: `${fontSize}px`, filter: `brightness(${brightness}%)`, fontFamily: language === 'urdu' ? 'Noto Nastaliq Urdu, serif' : 'inherit', direction: language === 'urdu' ? 'rtl' : 'ltr' }}
             >
               <h1 className="text-2xl md:text-3xl font-bold bg-gold-text bg-clip-text text-transparent mb-6">{currentChapter.title}</h1>
-              {currentChapter.imageUrl ? (
-                <img src={currentChapter.imageUrl} alt={currentChapter.title} className="w-full h-auto rounded-lg shadow-lg" />
+              {currentChapter.images && currentChapter.images.length > 0 ? (
+                <div className="space-y-4">
+                  {currentChapter.images.map((image, index) => (
+                    <img key={index} src={image} alt={`${currentChapter.title} - Image ${index + 1}`} className="w-full h-auto rounded-lg shadow-lg" />
+                  ))}
+                </div>
               ) : (
                 <div className="text-white/90 leading-relaxed whitespace-pre-line">{currentChapter.content}</div>
+              )}
+              {currentChapter.images && currentChapter.images.length > 0 && currentChapter.content && (
+                <div className="mt-6 text-white/90 leading-relaxed whitespace-pre-line">{currentChapter.content}</div>
               )}
             </div>
           </Card>

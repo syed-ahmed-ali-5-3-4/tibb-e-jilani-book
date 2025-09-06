@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
-import { faker } from '@faker-js/faker';
+import { supabase } from '../lib/supabase';
 
 export interface Chapter {
   id: string;
@@ -7,7 +7,7 @@ export interface Chapter {
   content: string;
   language: 'english' | 'urdu';
   order: number;
-  imageUrl?: string;
+  images?: string[];
 }
 
 export interface Bookmark {
@@ -41,6 +41,7 @@ interface BookContextType {
   notes: Note[];
   testimonials: Testimonial[];
   currentChapter: Chapter | null;
+  loading: boolean;
   setCurrentChapter: (chapter: Chapter) => void;
   addBookmark: (bookmark: Omit<Bookmark, 'id' | 'createdAt'>) => void;
   removeBookmark: (id: string) => void;
@@ -55,91 +56,235 @@ interface BookContextType {
   deleteChapter: (id: string) => void;
   updateTestimonial: (id: string, testimonial: Partial<Omit<Testimonial, 'id'>>) => void;
   removeTestimonial: (id: string) => void;
+  refreshData: () => Promise<void>;
 }
 
 const BookContext = createContext<BookContextType | undefined>(undefined);
 
-// Mock data is now a fallback if nothing is in storage
-const mockChapters: Chapter[] = [
-  { id: '1', title: 'Introduction to Islamic Healthcare Philosophy', content: `In the name of Allah, the Most Gracious, the Most Merciful...`, language: 'english', order: 1 },
-  { id: '2', title: 'The Sacred Trust of the Body', content: `The human body is described in the Quran as an Amanah...`, language: 'english', order: 2, imageUrl: 'https://img-wrapper.vercel.app/image?url=https://img-wrapper.vercel.app/image?url=https://placehold.co/800x1200.png?text=Scanned+Page' },
-  { id: '3', title: 'Spiritual Dimensions of Medical Decision-Making', content: `The intersection of spirituality and healthcare...`, language: 'english', order: 3 },
-  { id: '4', title: 'اسلامی صحت کی فلسفہ کا تعارف', content: `بسم اللہ الرحمن الرحیم...`, language: 'urdu', order: 1 },
-  { id: '5', title: 'جسم کی مقدس امانت', content: `قرآن مجید میں انسانی جسم کو اللہ کی طرف سے امانت...`, language: 'urdu', order: 2 }
-];
-
-const mockTestimonials: Testimonial[] = [
-  { id: '1', name: 'Dr. Ahmed Hassan', text: 'This book beautifully bridges the gap between modern medical ethics and Islamic principles. A must-read for healthcare professionals.', rating: 5, approved: true, createdAt: new Date('2024-01-15') },
-  { id: '2', name: 'Sister Fatima', text: 'The wisdom shared in this book helped me make difficult healthcare decisions for my elderly mother. Truly enlightening.', rating: 5, approved: false, createdAt: new Date('2024-01-20') },
-  { id: '3', name: 'Professor Mahmoud', text: 'An excellent resource that combines spiritual insight with practical guidance. The Sufi perspective adds depth to medical decision-making.', rating: 4, approved: true, createdAt: new Date('2024-02-01') }
-];
-
-// Helper to get data from localStorage
-const getFromStorage = <T,>(key: string, defaultValue: T): T => {
-  try {
-    const item = window.localStorage.getItem(key);
-    if (!item) return defaultValue;
-
-    const parsed = JSON.parse(item);
-    // Re-hydrate dates, which are lost during JSON serialization
-    if (Array.isArray(parsed) && parsed.length > 0 && 'createdAt' in parsed[0]) {
-      return parsed.map((i: any) => ({ ...i, createdAt: new Date(i.createdAt) })) as T;
-    }
-    return parsed;
-  } catch (error) {
-    console.warn(`Error reading localStorage key “${key}”:`, error);
-    return defaultValue;
-  }
-};
-
-// Helper to set data to localStorage
-const setToStorage = <T,>(key: string, value: T) => {
-  try {
-    window.localStorage.setItem(key, JSON.stringify(value));
-  } catch (error) {
-    console.warn(`Error setting localStorage key “${key}”:`, error);
-  }
-};
-
-
 export const BookProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [chapters, setChapters] = useState<Chapter[]>(() => getFromStorage('chapters', mockChapters));
-  const [bookmarks, setBookmarks] = useState<Bookmark[]>(() => getFromStorage('bookmarks', []));
-  const [notes, setNotes] = useState<Note[]>(() => getFromStorage('notes', []));
-  const [testimonials, setTestimonials] = useState<Testimonial[]>(() => getFromStorage('testimonials', mockTestimonials));
+  const [chapters, setChapters] = useState<Chapter[]>([]);
+  const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
+  const [notes, setNotes] = useState<Note[]>([]);
+  const [testimonials, setTestimonials] = useState<Testimonial[]>([]);
   const [currentChapter, setCurrentChapter] = useState<Chapter | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  // Effects to persist state changes to localStorage
-  useEffect(() => { setToStorage('chapters', chapters); }, [chapters]);
-  useEffect(() => { setToStorage('bookmarks', bookmarks); }, [bookmarks]);
-  useEffect(() => { setToStorage('notes', notes); }, [notes]);
-  useEffect(() => { setToStorage('testimonials', testimonials); }, [testimonials]);
+  // Load data from Supabase on mount
+  useEffect(() => {
+    refreshData();
+  }, []);
 
-  const addBookmark = (bookmark: Omit<Bookmark, 'id' | 'createdAt'>) => {
-    const newBookmark: Bookmark = { ...bookmark, id: faker.string.uuid(), createdAt: new Date() };
-    setBookmarks(prev => [...prev, newBookmark]);
+  const refreshData = async () => {
+    setLoading(true);
+    try {
+      // Load chapters
+      const { data: chaptersData, error: chaptersError } = await supabase
+        .from('chapters')
+        .select('*')
+        .order('order');
+      
+      if (chaptersError) throw chaptersError;
+      
+      const formattedChapters = chaptersData?.map(chapter => ({
+        id: chapter.id,
+        title: chapter.title,
+        content: chapter.content,
+        language: chapter.language as 'english' | 'urdu',
+        order: chapter.order,
+        images: chapter.images || []
+      })) || [];
+      
+      setChapters(formattedChapters);
+
+      // Load testimonials
+      const { data: testimonialsData, error: testimonialsError } = await supabase
+        .from('testimonials')
+        .select('*')
+        .order('created_at', { ascending: false });
+      
+      if (testimonialsError) throw testimonialsError;
+      
+      const formattedTestimonials = testimonialsData?.map(testimonial => ({
+        id: testimonial.id,
+        name: testimonial.name,
+        text: testimonial.text,
+        rating: testimonial.rating,
+        approved: testimonial.approved,
+        createdAt: new Date(testimonial.created_at)
+      })) || [];
+      
+      setTestimonials(formattedTestimonials);
+
+      // Load bookmarks
+      const { data: bookmarksData, error: bookmarksError } = await supabase
+        .from('bookmarks')
+        .select('*')
+        .order('created_at', { ascending: false });
+      
+      if (bookmarksError) throw bookmarksError;
+      
+      const formattedBookmarks = bookmarksData?.map(bookmark => ({
+        id: bookmark.id,
+        chapterId: bookmark.chapter_id,
+        position: bookmark.position,
+        note: bookmark.note || undefined,
+        createdAt: new Date(bookmark.created_at)
+      })) || [];
+      
+      setBookmarks(formattedBookmarks);
+
+      // Load notes
+      const { data: notesData, error: notesError } = await supabase
+        .from('notes')
+        .select('*')
+        .order('created_at', { ascending: false });
+      
+      if (notesError) throw notesError;
+      
+      const formattedNotes = notesData?.map(note => ({
+        id: note.id,
+        chapterId: note.chapter_id,
+        position: note.position,
+        text: note.text,
+        createdAt: new Date(note.created_at)
+      })) || [];
+      
+      setNotes(formattedNotes);
+    } catch (error) {
+      console.error('Error loading data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+  const addBookmark = async (bookmark: Omit<Bookmark, 'id' | 'createdAt'>) => {
+    try {
+      const { data, error } = await supabase
+        .from('bookmarks')
+        .insert({
+          chapter_id: bookmark.chapterId,
+          position: bookmark.position,
+          note: bookmark.note
+        })
+        .select()
+        .single();
+      
+      if (error) throw error;
+      
+      const newBookmark: Bookmark = {
+        id: data.id,
+        chapterId: data.chapter_id,
+        position: data.position,
+        note: data.note || undefined,
+        createdAt: new Date(data.created_at)
+      };
+      
+      setBookmarks(prev => [...prev, newBookmark]);
+    } catch (error) {
+      console.error('Error adding bookmark:', error);
+    }
   };
 
-  const removeBookmark = (id: string) => {
-    setBookmarks(prev => prev.filter(b => b.id !== id));
+  const removeBookmark = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from('bookmarks')
+        .delete()
+        .eq('id', id);
+      
+      if (error) throw error;
+      
+      setBookmarks(prev => prev.filter(b => b.id !== id));
+    } catch (error) {
+      console.error('Error removing bookmark:', error);
+    }
   };
 
-  const addNote = (note: Omit<Note, 'id' | 'createdAt'>) => {
-    const newNote: Note = { ...note, id: faker.string.uuid(), createdAt: new Date() };
-    setNotes(prev => [...prev, newNote]);
+  const addNote = async (note: Omit<Note, 'id' | 'createdAt'>) => {
+    try {
+      const { data, error } = await supabase
+        .from('notes')
+        .insert({
+          chapter_id: note.chapterId,
+          position: note.position,
+          text: note.text
+        })
+        .select()
+        .single();
+      
+      if (error) throw error;
+      
+      const newNote: Note = {
+        id: data.id,
+        chapterId: data.chapter_id,
+        position: data.position,
+        text: data.text,
+        createdAt: new Date(data.created_at)
+      };
+      
+      setNotes(prev => [...prev, newNote]);
+    } catch (error) {
+      console.error('Error adding note:', error);
+    }
   };
 
-  const updateNote = (id: string, text: string) => {
-    setNotes(prev => prev.map(n => n.id === id ? { ...n, text } : n));
+  const updateNote = async (id: string, text: string) => {
+    try {
+      const { error } = await supabase
+        .from('notes')
+        .update({ text })
+        .eq('id', id);
+      
+      if (error) throw error;
+      
+      setNotes(prev => prev.map(n => n.id === id ? { ...n, text } : n));
+    } catch (error) {
+      console.error('Error updating note:', error);
+    }
   };
 
-  const removeNote = (id: string) => {
-    setNotes(prev => prev.filter(n => n.id !== id));
+  const removeNote = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from('notes')
+        .delete()
+        .eq('id', id);
+      
+      if (error) throw error;
+      
+      setNotes(prev => prev.filter(n => n.id !== id));
+    } catch (error) {
+      console.error('Error removing note:', error);
+    }
   };
 
-  const addTestimonial = (testimonial: Omit<Testimonial, 'id' | 'createdAt' | 'approved'>) => {
-    const newTestimonial: Testimonial = { ...testimonial, id: faker.string.uuid(), approved: false, createdAt: new Date() };
-    setTestimonials(prev => [...prev, newTestimonial]);
+  const addTestimonial = async (testimonial: Omit<Testimonial, 'id' | 'createdAt' | 'approved'>) => {
+    try {
+      const { data, error } = await supabase
+        .from('testimonials')
+        .insert({
+          name: testimonial.name,
+          text: testimonial.text,
+          rating: testimonial.rating,
+          approved: false
+        })
+        .select()
+        .single();
+      
+      if (error) throw error;
+      
+      const newTestimonial: Testimonial = {
+        id: data.id,
+        name: data.name,
+        text: data.text,
+        rating: data.rating,
+        approved: data.approved,
+        createdAt: new Date(data.created_at)
+      };
+      
+      setTestimonials(prev => [...prev, newTestimonial]);
+    } catch (error) {
+      console.error('Error adding testimonial:', error);
+    }
   };
 
   const searchChapters = (query: string): Chapter[] => {
@@ -148,25 +293,108 @@ export const BookProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   // Admin Functions
-  const addChapter = (chapter: Omit<Chapter, 'id'>) => {
-    const newChapter: Chapter = { ...chapter, id: faker.string.uuid() };
-    setChapters(prev => [...prev, newChapter].sort((a, b) => a.order - b.order));
+  const addChapter = async (chapter: Omit<Chapter, 'id'>) => {
+    try {
+      const { data, error } = await supabase
+        .from('chapters')
+        .insert({
+          title: chapter.title,
+          content: chapter.content,
+          language: chapter.language,
+          order: chapter.order,
+          images: chapter.images || []
+        })
+        .select()
+        .single();
+      
+      if (error) throw error;
+      
+      const newChapter: Chapter = {
+        id: data.id,
+        title: data.title,
+        content: data.content,
+        language: data.language as 'english' | 'urdu',
+        order: data.order,
+        images: data.images || []
+      };
+      
+      setChapters(prev => [...prev, newChapter].sort((a, b) => a.order - b.order));
+    } catch (error) {
+      console.error('Error adding chapter:', error);
+    }
   };
 
-  const updateChapter = (id: string, chapter: Omit<Chapter, 'id'>) => {
-    setChapters(prev => prev.map(c => c.id === id ? { ...chapter, id } : c).sort((a, b) => a.order - b.order));
+  const updateChapter = async (id: string, chapter: Omit<Chapter, 'id'>) => {
+    try {
+      const { error } = await supabase
+        .from('chapters')
+        .update({
+          title: chapter.title,
+          content: chapter.content,
+          language: chapter.language,
+          order: chapter.order,
+          images: chapter.images || [],
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id);
+      
+      if (error) throw error;
+      
+      setChapters(prev => prev.map(c => c.id === id ? { ...chapter, id } : c).sort((a, b) => a.order - b.order));
+    } catch (error) {
+      console.error('Error updating chapter:', error);
+    }
   };
 
-  const deleteChapter = (id: string) => {
-    setChapters(prev => prev.filter(c => c.id !== id));
+  const deleteChapter = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from('chapters')
+        .delete()
+        .eq('id', id);
+      
+      if (error) throw error;
+      
+      setChapters(prev => prev.filter(c => c.id !== id));
+    } catch (error) {
+      console.error('Error deleting chapter:', error);
+    }
   };
 
-  const updateTestimonial = (id: string, testimonialUpdate: Partial<Omit<Testimonial, 'id'>>) => {
-    setTestimonials(prev => prev.map(t => t.id === id ? { ...t, ...testimonialUpdate } : t));
+  const updateTestimonial = async (id: string, testimonialUpdate: Partial<Omit<Testimonial, 'id'>>) => {
+    try {
+      const updateData: any = {};
+      if (testimonialUpdate.name !== undefined) updateData.name = testimonialUpdate.name;
+      if (testimonialUpdate.text !== undefined) updateData.text = testimonialUpdate.text;
+      if (testimonialUpdate.rating !== undefined) updateData.rating = testimonialUpdate.rating;
+      if (testimonialUpdate.approved !== undefined) updateData.approved = testimonialUpdate.approved;
+      
+      const { error } = await supabase
+        .from('testimonials')
+        .update(updateData)
+        .eq('id', id);
+      
+      if (error) throw error;
+      
+      setTestimonials(prev => prev.map(t => t.id === id ? { ...t, ...testimonialUpdate } : t));
+    } catch (error) {
+      console.error('Error updating testimonial:', error);
+    }
   };
 
-  const removeTestimonial = (id: string) => {
-    setTestimonials(prev => prev.filter(t => t.id !== id));
+  const removeTestimonial = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from('testimonials')
+        .delete()
+        .eq('id', id);
+      
+      if (error) throw error;
+      
+      setTestimonials(prev => prev.filter(t => t.id !== id));
+    } catch (error) {
+      console.error('Error removing testimonial:', error);
+    }
   };
 
   const value: BookContextType = {
@@ -175,6 +403,7 @@ export const BookProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     notes,
     testimonials,
     currentChapter,
+    loading,
     setCurrentChapter,
     addBookmark,
     removeBookmark,
@@ -188,6 +417,7 @@ export const BookProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     deleteChapter,
     updateTestimonial,
     removeTestimonial,
+    refreshData,
   };
 
   return <BookContext.Provider value={value}>{children}</BookContext.Provider>;

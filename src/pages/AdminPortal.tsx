@@ -13,7 +13,9 @@ import {
   FileText,
   Eye,
   Star,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Upload,
+  Loader2
 } from 'lucide-react';
 import { useBook, Chapter } from '../contexts/BookContext';
 import Header from '../components/layout/Header';
@@ -34,7 +36,7 @@ const AdminPortal: React.FC = () => {
 
 const AdminDashboard: React.FC = () => {
   const navigate = useNavigate();
-  const { chapters, testimonials } = useBook();
+  const { chapters, testimonials, loading } = useBook();
   
   const englishChapters = chapters.filter(c => c.language === 'english').length;
   const urduChapters = chapters.filter(c => c.language === 'urdu').length;
@@ -57,6 +59,12 @@ const AdminDashboard: React.FC = () => {
     <>
       <Header title="Admin Portal" showHome />
       <div className="container mx-auto px-4 py-6">
+        {loading && (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="w-8 h-8 animate-spin text-islamic-gold-400" />
+            <span className="ml-2 text-white">Loading data...</span>
+          </div>
+        )}
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>
           {/* Stats Grid */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
@@ -103,10 +111,10 @@ const AdminChapterCard: React.FC<{
         <div className="flex items-center text-white/60 text-sm mb-2">
           <span>Order: {chapter.order}</span>
         </div>
-        {chapter.imageUrl ? (
+        {chapter.images && chapter.images.length > 0 ? (
             <div className="text-white/80 text-sm flex items-center">
                 <ImageIcon className="w-4 h-4 mr-2 text-islamic-gold-400" />
-                <span>Image content</span>
+                <span>{chapter.images.length} image{chapter.images.length > 1 ? 's' : ''}</span>
             </div>
         ) : (
             <p className="text-white/80 text-sm line-clamp-2" dir={chapter.language === 'urdu' ? 'rtl' : 'ltr'}>
@@ -195,37 +203,51 @@ const ChapterManagement: React.FC = () => {
 
 const ChapterForm: React.FC<{ isOpen: boolean; onClose: () => void; chapter: Chapter | null }> = ({ isOpen, onClose, chapter }) => {
   const { addChapter, updateChapter, chapters } = useBook();
-  const [formData, setFormData] = useState({ title: '', content: '', language: 'english' as 'english' | 'urdu', order: 1, imageUrl: '' });
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [formData, setFormData] = useState({ title: '', content: '', language: 'english' as 'english' | 'urdu', order: 1, images: [] as string[] });
+  const [imagePreviews, setImagePreviews] = useState<string[]>([]);
+  const [uploading, setUploading] = useState(false);
 
   React.useEffect(() => {
     if (isOpen) {
       if (chapter) {
-        setFormData({ title: chapter.title, content: chapter.content, language: chapter.language, order: chapter.order, imageUrl: chapter.imageUrl || '' });
-        setImagePreview(chapter.imageUrl || null);
+        setFormData({ title: chapter.title, content: chapter.content, language: chapter.language, order: chapter.order, images: chapter.images || [] });
+        setImagePreviews(chapter.images || []);
       } else {
-        setFormData({ title: '', content: '', language: 'english', order: chapters.length + 1, imageUrl: '' });
-        setImagePreview(null);
+        setFormData({ title: '', content: '', language: 'english', order: chapters.length + 1, images: [] });
+        setImagePreviews([]);
       }
     }
   }, [chapter, isOpen, chapters.length]);
 
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const dataUrl = reader.result as string;
-        setImagePreview(dataUrl);
-        setFormData({ ...formData, imageUrl: dataUrl });
-      };
-      reader.readAsDataURL(file);
+  const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      setUploading(true);
+      const files = Array.from(e.target.files);
+      const newImages: string[] = [];
+      
+      for (const file of files) {
+        const reader = new FileReader();
+        await new Promise<void>((resolve) => {
+          reader.onloadend = () => {
+            const dataUrl = reader.result as string;
+            newImages.push(dataUrl);
+            resolve();
+          };
+          reader.readAsDataURL(file);
+        });
+      }
+      
+      const updatedImages = [...formData.images, ...newImages];
+      setFormData({ ...formData, images: updatedImages });
+      setImagePreviews(updatedImages);
+      setUploading(false);
     }
   };
 
-  const handleRemoveImage = () => {
-    setImagePreview(null);
-    setFormData({ ...formData, imageUrl: '' });
+  const handleRemoveImage = (index: number) => {
+    const updatedImages = formData.images.filter((_, i) => i !== index);
+    setFormData({ ...formData, images: updatedImages });
+    setImagePreviews(updatedImages);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -240,7 +262,7 @@ const ChapterForm: React.FC<{ isOpen: boolean; onClose: () => void; chapter: Cha
     onClose();
   };
 
-  const isFormValid = formData.title.trim() !== '' && (formData.content.trim() !== '' || !!formData.imageUrl);
+  const isFormValid = formData.title.trim() !== '' && (formData.content.trim() !== '' || formData.images.length > 0);
 
   return (
     <AnimatePresence>
@@ -256,35 +278,58 @@ const ChapterForm: React.FC<{ isOpen: boolean; onClose: () => void; chapter: Cha
               </div>
               
               <div>
-                <label className="block text-white font-medium mb-2">Chapter Image (Optional)</label>
-                {imagePreview ? (
-                  <div className="mt-2">
-                    <img src={imagePreview} alt="Chapter preview" className="max-h-48 w-full object-contain rounded-lg bg-black/20" />
-                    <Button type="button" variant="ghost" size="sm" icon={Trash2} onClick={handleRemoveImage} className="mt-2 text-red-400 hover:text-red-300">
-                      Remove Image
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="mt-2 flex justify-center px-6 pt-5 pb-6 border-2 border-white/20 border-dashed rounded-md">
-                    <div className="space-y-1 text-center">
-                      <ImageIcon className="mx-auto h-12 w-12 text-white/60" />
-                      <div className="flex text-sm text-white/60">
-                        <label htmlFor="file-upload" className="relative cursor-pointer bg-islamic-blue-900 rounded-md font-medium text-islamic-gold-400 hover:text-islamic-gold-300 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-offset-islamic-blue-900 focus-within:ring-islamic-gold-500">
-                          <span>Upload a file</span>
-                          <input id="file-upload" name="file-upload" type="file" className="sr-only" onChange={handleImageChange} accept="image/*" />
-                        </label>
+                <label className="block text-white font-medium mb-2">Chapter Images (Optional)</label>
+                
+                {imagePreviews.length > 0 && (
+                  <div className="grid grid-cols-2 gap-4 mb-4">
+                    {imagePreviews.map((image, index) => (
+                      <div key={index} className="relative">
+                        <img src={image} alt={`Preview ${index + 1}`} className="w-full h-32 object-cover rounded-lg bg-black/20" />
+                        <Button 
+                          type="button" 
+                          variant="ghost" 
+                          size="sm" 
+                          icon={Trash2} 
+                          onClick={() => handleRemoveImage(index)} 
+                          className="absolute top-2 right-2 bg-red-500/80 hover:bg-red-500 text-white p-1"
+                        />
                       </div>
-                      <p className="text-xs text-white/50">PNG, JPG, GIF</p>
-                    </div>
+                    ))}
                   </div>
                 )}
+                
+                <div className="flex justify-center px-6 pt-5 pb-6 border-2 border-white/20 border-dashed rounded-md">
+                  <div className="space-y-1 text-center">
+                    {uploading ? (
+                      <Loader2 className="mx-auto h-12 w-12 text-islamic-gold-400 animate-spin" />
+                    ) : (
+                      <Upload className="mx-auto h-12 w-12 text-white/60" />
+                    )}
+                    <div className="flex text-sm text-white/60">
+                      <label htmlFor="file-upload" className="relative cursor-pointer bg-islamic-blue-900 rounded-md font-medium text-islamic-gold-400 hover:text-islamic-gold-300 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-offset-islamic-blue-900 focus-within:ring-islamic-gold-500">
+                        <span>{uploading ? 'Uploading...' : 'Upload images'}</span>
+                        <input 
+                          id="file-upload" 
+                          name="file-upload" 
+                          type="file" 
+                          className="sr-only" 
+                          onChange={handleImageChange} 
+                          accept="image/*" 
+                          multiple
+                          disabled={uploading}
+                        />
+                      </label>
+                    </div>
+                    <p className="text-xs text-white/50">PNG, JPG, GIF (Multiple files supported)</p>
+                  </div>
+                </div>
               </div>
 
-              <div><label className="block text-white font-medium mb-2">Text Content</label><textarea value={formData.content} onChange={(e) => setFormData({ ...formData, content: e.target.value })} className="w-full h-48 p-3 bg-white/10 border border-white/20 rounded-lg text-white resize-none focus:outline-none focus:ring-2 focus:ring-islamic-gold-400" placeholder="Enter text content. Optional if an image is provided." /></div>
+              <div><label className="block text-white font-medium mb-2">Text Content</label><textarea value={formData.content} onChange={(e) => setFormData({ ...formData, content: e.target.value })} className="w-full h-48 p-3 bg-white/10 border border-white/20 rounded-lg text-white resize-none focus:outline-none focus:ring-2 focus:ring-islamic-gold-400" placeholder="Enter text content. Optional if images are provided." /></div>
               <div className="flex items-center justify-end space-x-3">
-                {!isFormValid && <p className="text-sm text-red-400 mr-auto">A title and content (text or image) are required.</p>}
+                {!isFormValid && <p className="text-sm text-red-400 mr-auto">A title and content (text or images) are required.</p>}
                 <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
-                <Button type="submit" disabled={!isFormValid}>{chapter ? 'Update' : 'Create'} Chapter</Button>
+                <Button type="submit" disabled={!isFormValid || uploading}>{chapter ? 'Update' : 'Create'} Chapter</Button>
               </div>
             </form>
           </div></Card></motion.div>
