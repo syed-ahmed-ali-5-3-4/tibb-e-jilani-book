@@ -274,7 +274,7 @@ const ChapterForm: React.FC<{ isOpen: boolean; onClose: () => void; chapter: Cha
               <div><label className="block text-white font-medium mb-2">Title</label><input type="text" value={formData.title} onChange={(e) => setFormData({ ...formData, title: e.target.value })} className="w-full p-3 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-islamic-gold-400" required /></div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div><label className="block text-white font-medium mb-2">Language</label><select value={formData.language} onChange={(e) => setFormData({ ...formData, language: e.target.value as 'english' | 'urdu' })} className="w-full p-3 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-islamic-gold-400"><option value=\"english">English</option><option value="urdu">Urdu</option></select></div>
-                <div><label className="block text-white font-medium mb-2">Order</label><input type="number" value={formData.order} onChange={(e) => setFormData({ ...formData, order: Number(e.target.value) })} className="w-full p-3 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-islamic-gold-400" min=\"1" required /></div>
+                <div><label className="block text-white font-medium mb-2">Order</label><input type="number" value={formData.order} onChange={(e) => setFormData({ ...formData, order: Number(e.target.value) })} className="w-full p-3 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-islamic-gold-400" min="1" required /></div>
               </div>
               
               <div>
